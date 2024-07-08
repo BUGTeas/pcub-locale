@@ -1,0 +1,14 @@
+{
+  "name": "pcub-locale",
+  "version": "1.0.0",
+  "description": "盘灵无界语言文件处理（用于转换 Java 版资源包语言文件为 GeyserMC 和基岩版客户端可用的格式）",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "opencc": "^1.1.3"
+  }
+}
