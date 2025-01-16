@@ -122,7 +122,7 @@ const process = async function (sourceSpace) {
 			if(OpenCC) subConvertAction.push(
 				conv_s2tw.convertPromise(preseted).then( converted => {
 					//crossTW[key] = converted;
-					if (JSONList[l].split(":")[1] == "minecraft") bedrockTW[key] = converted;
+					if (JSONList[l] == "minecraft") bedrockTW[key] = converted;
 					geyserTW[key] = converted;
 				} )
 			)
