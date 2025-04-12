@@ -78,32 +78,17 @@ function escapeTransformation(text) {
 	// return text.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll("\t", "\\t");
 }
 
-// 防止不同命名空间中存在不同值的同一键，以免客户端显示错误内容
-const dupKeyInDiffNs = function(prossedObj) {
-	// 遍历命名空间
-	for (const namespace in prossedObj) {
-		// 遍历键
-		const langObj = prossedObj[namespace];
-		for (const key in langObj) {
-			const srcVal = langObj[key];
-			// 检查其它命名空间中的重复键
-			let duplicated = false;
-			for (const testNs in prossedObj) {
-				if (testNs == namespace) break; // 遇到同命名空间，跳出
-				// 如果其它命名空间中存在同样的键
-				const testVal = prossedObj[testNs][key];
-				if (testVal) {
-					duplicated = true;
-					if (namespace != "pcub") console.warn(
-						`“${namespace}” 中的键 “${key}” 也存在于 “${testNs}” 中！`,
-						(testVal == srcVal) ? "值相同" : `由 ${JSON.stringify(testVal)} 覆盖为 ${JSON.stringify(srcVal)}`
-					)
-					prossedObj[testNs][key] = langObj[key];
-				}
-			}
-			// 删除补丁命名空间中的重复键
-			if (duplicated && namespace == "pcub") delete prossedObj.pcub[key];
+// 覆盖其它命名空间中的重复键
+const dupKeyInOtherNs = function(target, prossedObj) {
+	// 遍历键
+	for (const key in prossedObj) {
+		let duplicated = false;
+		for (const testNs in target) if (target[testNs][key]) {
+			// 如果其它命名空间中存在同样的键
+			duplicated = true;
+			target[testNs][key] = prossedObj[key];
 		}
+		if (duplicated) delete prossedObj[key]; // 删除补丁中的重复键
 	}
 }
 
@@ -124,7 +109,7 @@ const process = async function (...packNameList) {
 	const convertTask = [];
 
 	const mainPackName = packNameList[0];
-
+	// 遍历资源包
 	for (const packIndex in packNameList) {
 		const packName = packNameList[packIndex];
 		const packRoot = "./resources/" + packName + "/assets/";
@@ -144,33 +129,63 @@ const process = async function (...packNameList) {
 		for (const namespace in packObj) {
 			// 初始化命名空间对象
 			const packNsObj = packObj[namespace];
-			if (!javaCN[namespace]) {
-				javaCN[namespace] = packNsObj;
-				javaTW[namespace] = {};
-				javaHK[namespace] = {};
-			} else {
-				Object.assign(javaCN[namespace], packNsObj);
-			}
+			if (!javaCN[namespace]) javaCN[namespace] = packNsObj;
+			else Object.assign(javaCN[namespace], packNsObj);
 			// 遍历键
 			for (const key in packNsObj) {
 				const value = packNsObj[key];
-				// 转换
-				const preseted = presetBedrock(key, value);
+				const outputNsList = [namespace]; // 繁体转换目标命名空间列表
+
+				// 防止其它命名空间中存在不同值的同一键，以免客户端显示错误内容
+				for (const testNs in javaCN) {
+					if (testNs == namespace) continue; // 遇到同命名空间，跳过
+					// 如果其它命名空间中存在同样的键
+					const testVal = javaCN[testNs][key];
+					if (testVal) {
+						console.warn(
+							`“${namespace}” 中的键 “${key}” 也存在于 “${testNs}” 中！`,
+							(testVal == value) ? "值相同" : `由 ${JSON.stringify(testVal)} 覆盖为 ${JSON.stringify(value)}`
+						)
+						javaCN[testNs][key] = value; // 覆盖重复键
+						outputNsList.push(testNs); // 供繁体转换遍历
+					}
+				}
+
+				// 输出到基岩
+				const preseted = presetBedrock(key, value); // 额外处理
 				if (namespace == "minecraft") bedrockCN[key] = preseted;
 				geyserCN[key] = preseted;
-				if(OpenCC) {
+
+				// 繁体转换
+				if (OpenCC) {
 					convertTask.push(
 						conv_s2tw.convertPromise(value).then( converted => {
-							javaTW[namespace][key] = converted;
+							for (const i in outputNsList) {
+								const namespace = outputNsList[i];
+								if (!javaTW[namespace]) javaTW[namespace] = {};
+								javaTW[namespace][key] = converted;
+							}
+							// 如果基岩的值和Java相同，直接使用Java的转换结果
+							if (preseted == value) {
+								if (namespace == "minecraft") bedrockNonConvTW[key] = converted;
+								geyserNonConvTW[key] = converted;
+							}
 						} ),
 						conv_s2hk.convertPromise(value).then( converted => {
-							javaHK[namespace][key] = converted;
-						} ),
+							for (const i in outputNsList) {
+								const namespace = outputNsList[i];
+								if (!javaHK[namespace]) javaHK[namespace] = {};
+								javaHK[namespace][key] = converted;
+							}
+						} )
+					)
+					// 如果基岩的值和Java不同，单独转换
+					if (preseted != value) convertTask.push(
 						conv_s2tw.convertPromise(preseted).then( converted => {
 							if (namespace == "minecraft") bedrockNonConvTW[key] = converted;
 							geyserNonConvTW[key] = converted;
 						} )
-					)
+					);
 				}
 			}
 		}
@@ -186,7 +201,7 @@ const process = async function (...packNameList) {
 		const geyserPatchConvTW = new Object();
 		const bedrockPatchConvTW = new Object();
 		
-		let patchObj = false;
+		let patchObj = {};
 		try { patchObj = JSON.parse(fs.readFileSync("./patch/" + packName + ".json")); } catch (e) {}
 
 		// Java 客户端
@@ -215,11 +230,10 @@ const process = async function (...packNameList) {
 				)
 			}
 			// 合并
-			if (javaCN.pcub) {
-				Object.assign(javaCN.pcub, javaPatchCN);
-			} else {
-				javaCN.pcub = javaPatchCN;
-			}
+			const javaPatchOut = Object.assign({},javaPatchCN);
+			dupKeyInOtherNs(javaCN, javaPatchOut); // 使用补丁覆盖
+			if (javaCN.pcub) Object.assign(javaCN.pcub, javaPatchOut);
+			else javaCN.pcub = javaPatchOut;
 		}
 
 		// Geyser 专用
@@ -308,79 +322,82 @@ const process = async function (...packNameList) {
 				// 合并到 Java 客户端
 				if (patchObj.java) {
 					const javaPatchTW = Object.assign({},
-						javaPatchCN,     // 有序，用于整理数据顺序，并提供base项
-						commonConvTW,    // 无序，不包含base项
-						javaPatchConvTW, // 无序，不包含base项
-						(patchObj.common) ? patchObj.common.tw : {}, //无需转换的本地化部分
-						(patchObj.java) ? patchObj.java.tw : {}      //无需转换的本地化部分
+						javaPatchCN, // 继承简体的键顺序
+						(patchObj.common) ? patchObj.common.base : {},
+						commonConvTW,
+						(patchObj.common) ? patchObj.common.tw : {},
+						(patchObj.java) ? patchObj.java.base : {},
+						javaPatchConvTW,
+						(patchObj.java) ? patchObj.java.tw : {}
 					)
-					if (javaTW.pcub) Object.assign(javaTW.pcub, javaPatchTW);
-					else javaTW.pcub = javaPatchTW;
+					const javaPatchOut = Object.assign({},javaPatchTW);
+					dupKeyInOtherNs(javaTW, javaPatchOut); // 使用补丁覆盖
+					if (javaTW.pcub) Object.assign(javaTW.pcub, javaPatchOut);
+					else javaTW.pcub = javaPatchOut;
 
 					const javaPatchHK = Object.assign({},
-						javaPatchTW,     // 继承了 TW 转换
-						commonConvHK,    // 无序，不包含base项
-						javaPatchConvHK, // 无序，不包含base项
-						(patchObj.common) ? patchObj.common.hk : {}, //无需转换的本地化部分
-						(patchObj.java) ? patchObj.java.hk : {}	     //无需转换的本地化部分
+						javaPatchTW, // 继承了台繁
+						(patchObj.common) ? patchObj.common.base : {},
+						commonConvHK,
+						(patchObj.common) ? patchObj.common.hk : {},
+						(patchObj.java) ? patchObj.java.base : {},
+						javaPatchConvHK,
+						(patchObj.java) ? patchObj.java.hk : {}
 					)
+					dupKeyInOtherNs(javaHK, javaPatchHK); // 使用补丁覆盖
 					if (javaHK.pcub) Object.assign(javaHK.pcub, javaPatchHK);
 					else javaHK.pcub = javaPatchHK;
 				}
 				// 合并到 Geyser 专用
 				Object.assign(geyserTW,
-					geyserCN,        // 有序，用于整理数据顺序，并提供base项
-					geyserNonConvTW, // 无序，资源包内容，不包含base项
+					geyserCN,        // 继承简体的键顺序
+					geyserNonConvTW, // 资源包内容
+					(patchObj.common) ? patchObj.common.base : {},
 					commonConvTW,
-					crossConvTW,
-					geyserPatchConvTW,
 					(patchObj.common) ? patchObj.common.tw : {},
+					(patchObj.cross) ? patchObj.cross.base : {},
+					crossConvTW,
 					(patchObj.cross) ? patchObj.cross.tw : {},
+					(patchObj.geyser) ? patchObj.geyser.base : {},
+					geyserPatchConvTW,
 					(patchObj.geyser) ? patchObj.geyser.tw : {}
 				)
 				// 合并到基岩客户端
 				Object.assign(bedrockTW,
-					bedrockCN,        // 有序，用于整理数据顺序，并提供base项
-					bedrockNonConvTW, // 无序，部分资源包内容，不包含base项
+					bedrockCN,        // 继承简体的键顺序
+					bedrockNonConvTW, // 部分资源包内容
+					(patchObj.common) ? patchObj.common.base : {},
 					commonConvTW,
-					crossConvTW,
-					bedrockPatchConvTW,
 					(patchObj.common) ? patchObj.common.tw : {},
+					(patchObj.cross) ? patchObj.cross.base : {},
+					crossConvTW,
 					(patchObj.cross) ? patchObj.cross.tw : {},
+					(patchObj.bedrock) ? patchObj.bedrock.base : {},
+					bedrockPatchConvTW,
 					(patchObj.bedrock) ? patchObj.bedrock.tw : {}
 				)
 			})
 		)
 	}
-	Promise.all(convertTask).then(function(){
+	Promise.all(asyncTask).then(function(){
 		// 输出 Java 客户端语言文件
 		const javaOut = Object.assign({}, javaCN)
 		// 简体
-		// 去除重复键
-		dupKeyInDiffNs(javaOut);
-		// 输出
 		for (const namespace in javaOut) {
-			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_cn.json", JSON.stringify(javaOut[namespace]));
+			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_cn.json",
+				JSON.stringify(javaOut[namespace]));
 		}
 		// 台繁
-		// 去除重复键
-		for (const namespace in javaTW) {
-			Object.assign(javaOut[namespace],javaTW[namespace]);
-		}
-		dupKeyInDiffNs(javaOut);
-		// 输出
 		for (const namespace in javaOut) {
-			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_tw.json", JSON.stringify(javaOut[namespace]));
+			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_tw.json",
+				JSON.stringify(Object.assign(javaOut[namespace], // 继承简体的键顺序
+					javaTW[namespace])));
 		}
 		// 港繁
-		// 去除重复键
-		for (const namespace in javaHK) {
-			Object.assign(javaOut[namespace],javaHK[namespace]);
-		}
-		dupKeyInDiffNs(javaOut);
-		// 输出
 		for (const namespace in javaOut) {
-			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_hk.json", JSON.stringify(javaOut[namespace]));
+			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_hk.json",
+				JSON.stringify(Object.assign(javaOut[namespace], // 此时已将台繁并入，即作为港繁的后备，也继承键顺序
+					javaHK[namespace])));
 		}
 		// 输出 Geyser 专用语言文件
 		autoOut("./output/" + mainPackName + "/overrides/zh_tw.json", JSON.stringify(geyserTW));
