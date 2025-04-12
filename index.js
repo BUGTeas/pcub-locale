@@ -95,8 +95,10 @@ const dupKeyInOtherNs = function(target, prossedObj) {
 // 主处理
 const process = async function (...packNameList) {
 	// 整个实例下的对象
+	const bedrockEN = new Object();
 	const bedrockCN = new Object();
 	const bedrockTW = new Object();
+	const geyserEN = new Object();
 	const geyserCN = new Object();
 	const geyserTW = new Object();
 	const bedrockNonConvTW = new Object();
@@ -106,7 +108,7 @@ const process = async function (...packNameList) {
 	const javaTW = new Object();
 	const javaHK = new Object();
 	// 异步执行
-	const convertTask = [];
+	const asyncTask = [];
 
 	const mainPackName = packNameList[0];
 	// 遍历资源包
@@ -114,9 +116,12 @@ const process = async function (...packNameList) {
 		const packName = packNameList[packIndex];
 		const packRoot = "./resources/" + packName + "/assets/";
 		const packObj = new Object();
+		// 异步执行
+		const convertTask = [];
 		// 读取资源包
 		let dirList = [];
 		try { dirList = fs.readdirSync(packRoot); } catch (e) {}
+		console.log(`资源包 “${packName}” 的命名空间读取顺序为：${dirList}`);
 		for (const s in dirList) {
 			const namespace = dirList[s];
 			let langObj = false;
@@ -191,7 +196,6 @@ const process = async function (...packNameList) {
 		}
 
 		// 补丁文件
-		const patchConvertTask = new Array();
 		const commonConvHK = new Object();
 		const commonConvTW = new Object();
 		const javaPatchCN = new Object();
@@ -220,7 +224,7 @@ const process = async function (...packNameList) {
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.java.conversion) {
 				const preseted = patchObj.java.conversion[key];
-				patchConvertTask.push(
+				convertTask.push(
 					conv_s2hk.convertPromise(preseted).then( converted => {
 						javaPatchConvHK[key] = converted;
 					} ),
@@ -247,23 +251,21 @@ const process = async function (...packNameList) {
 				patchObj.geyser.conversion
 			);
 			// 后备
-			autoOut("./output/" + mainPackName + "/overrides/en_us.json", JSON.stringify(Object.assign({},
+			Object.assign(geyserEN,
 				(patchObj.common) ? patchObj.common.fallback : {},
 				(patchObj.cross) ? patchObj.cross.fallback : {},
 				patchObj.geyser.fallback
-			)));
+			);
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.geyser.conversion) {
 				const preseted = patchObj.geyser.conversion[key];
-				patchConvertTask.push(
+				convertTask.push(
 					conv_s2tw.convertPromise(preseted).then( converted => {
 						geyserPatchConvTW[key] = converted;
 					} )
 				)
 			}
 		}
-		// 输出
-		autoOut("./output/" + mainPackName + "/overrides/zh_cn.json", JSON.stringify(geyserCN));
 
 		// 基岩客户端
 		if (patchObj.bedrock) {
@@ -276,29 +278,27 @@ const process = async function (...packNameList) {
 				patchObj.bedrock.conversion
 			);
 			// 后备
-			autoOut("./output/" + mainPackName + "/texts/en_US.lang", langStr(Object.assign({},
+			Object.assign(bedrockEN,
 				(patchObj.common) ? patchObj.common.fallback : {},
 				(patchObj.cross) ? patchObj.cross.fallback : {},
 				patchObj.bedrock.fallback
-			)));
+			);
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.bedrock.conversion) {
 				const preseted = patchObj.bedrock.conversion[key];
-				patchConvertTask.push(
+				convertTask.push(
 					conv_s2tw.convertPromise(preseted).then( converted => {
 						bedrockPatchConvTW[key] = converted;
 					} )
 				)
 			}
 		}
-		// 输出
-		autoOut("./output/" + mainPackName + "/texts/zh_CN.lang", langStr(bedrockCN));
 		
 		// 通用繁体转换
 		// 互通通用
 		if (patchObj.cross && OpenCC) for (const key in patchObj.cross.conversion) {
 			const preseted = patchObj.cross.conversion[key];
-			patchConvertTask.push(
+			convertTask.push(
 				conv_s2tw.convertPromise(preseted).then( converted => {
 					crossConvTW[key] = converted;
 				} )
@@ -307,7 +307,7 @@ const process = async function (...packNameList) {
 		// 全部通用
 		if (patchObj.common && OpenCC) for (const key in patchObj.common.conversion) {
 			const preseted = patchObj.common.conversion[key];
-			patchConvertTask.push(
+			convertTask.push(
 				conv_s2hk.convertPromise(preseted).then( converted => {
 					commonConvHK[key] = converted;
 				} ),
@@ -317,8 +317,8 @@ const process = async function (...packNameList) {
 			)
 		};
 
-		convertTask.push(
-			Promise.all(patchConvertTask).then(function(){
+		asyncTask.push(
+			Promise.all(convertTask).then(function(){
 				// 合并到 Java 客户端
 				if (patchObj.java) {
 					const javaPatchTW = Object.assign({},
@@ -400,8 +400,12 @@ const process = async function (...packNameList) {
 					javaHK[namespace])));
 		}
 		// 输出 Geyser 专用语言文件
+		autoOut("./output/" + mainPackName + "/overrides/en_us.json", JSON.stringify(geyserEN));
+		autoOut("./output/" + mainPackName + "/overrides/zh_cn.json", JSON.stringify(geyserCN));
 		autoOut("./output/" + mainPackName + "/overrides/zh_tw.json", JSON.stringify(geyserTW));
 		// 输出基岩客户端语言文件
+		autoOut("./output/" + mainPackName + "/texts/en_US.lang", langStr(bedrockEN));
+		autoOut("./output/" + mainPackName + "/texts/zh_CN.lang", langStr(bedrockCN));
 		autoOut("./output/" + mainPackName + "/texts/zh_TW.lang", langStr(bedrockTW));
 	});
 }
