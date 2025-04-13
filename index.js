@@ -39,22 +39,20 @@ const autoOut = async function (path, data){
 	}
 }
 
-//输出lang格式内容
+// 输出lang格式内容
 function langStr(src) {
 	let result = "";
 	for (const objectKey in src){
 		let objectValue = src[objectKey];
-		if (objectValue == "") objectValue = " ";// 避免空内容
+		if (objectValue == "") objectValue = " "; // 避免空内容
 		else objectValue = JSON.stringify(objectValue).slice(1, -1); // 使用转义符，适合 v1.21.50 后的版本
 		result += "\n" + objectKey + "=" + objectValue
 	}
 	return result.substring(1);
 }
 
-//预处理
+// 预处理
 function presetBedrock(key, value) {
-	//替换星号
-	value = value.replaceAll("★", "\ue1ff")
 	//修复秋漏写
 	if(key == "pl.info.instance5.end2" && /§6然四圣兽/g.test(value)) value = value.replaceAll("§6然四圣兽", "§6虽然四圣兽");
 	//清除进度尾部空格
@@ -64,6 +62,9 @@ function presetBedrock(key, value) {
 		var headIndex = value.search(/点击/g)
 		if (headIndex != -1) value = ((/_hide_mission_item/g.test(key)) ? "" : "\n\n\n") + "§p§l请通过菜单书" + ((key == "pl.book.zhan_hide_mission_item" && /点击谷主/g.test(value)) ? "领取" : "") + value.substring(headIndex + 2) + "。";
 	}
+	const newValue = value.replaceAll("§m", "⨉") // 将不受基岩客户端支持的删除线替换为前缀
+	if (newValue != value) console.warn(`键 “${key}” 的值中存在不受基岩客户端支持的删除线！(§m) ${JSON.stringify(value)}`);
+	value = newValue.replaceAll("§n", ""); // 去除不受基岩客户端支持的下划线
 	return value;
 }
 
