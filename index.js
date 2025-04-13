@@ -41,15 +41,11 @@ const autoOut = async function (path, data){
 
 //输出lang格式内容
 function langStr(src) {
-	var result = "";
-	for (var objectKey in src){
-		var objectValue = src[objectKey];
-		//避免空内容
-		if (objectValue == "") objectValue = " ";
-		else {
-			//替换转义符
-			var objectValue = objectValue.replaceAll("\n", "\\n");//escapeTransformation(objectValue);
-		}
+	let result = "";
+	for (const objectKey in src){
+		let objectValue = src[objectKey];
+		if (objectValue == "") objectValue = " ";// 避免空内容
+		else objectValue = JSON.stringify(objectValue).slice(1, -1); // 使用转义符，适合 v1.21.50 后的版本
 		result += "\n" + objectKey + "=" + objectValue
 	}
 	return result.substring(1);
@@ -69,13 +65,6 @@ function presetBedrock(key, value) {
 		if (headIndex != -1) value = ((/_hide_mission_item/g.test(key)) ? "" : "\n\n\n") + "§p§l请通过菜单书" + ((key == "pl.book.zhan_hide_mission_item" && /点击谷主/g.test(value)) ? "领取" : "") + value.substring(headIndex + 2) + "。";
 	}
 	return value;
-}
-
-//替换转义符
-function escapeTransformation(text) {
-	const stringify = JSON.stringify(text);
-	return stringify.substring(1, stringify.length - 1)
-	// return text.replaceAll("\\", "\\\\").replaceAll("\n", "\\n").replaceAll("\t", "\\t");
 }
 
 // 覆盖其它命名空间中的重复键
