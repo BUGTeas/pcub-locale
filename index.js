@@ -202,29 +202,29 @@ const process = async function (...packNameList) {
 		// Java 客户端
 		if (patchObj.java) {
 			Object.assign(javaPatchCN, 
-				(patchObj.common) ? patchObj.common.base : {},
-				(patchObj.common) ? patchObj.common.conversion : {},
+				... (patchObj.common) ? [patchObj.common.base, patchObj.common.conversion] : [],
 				patchObj.java.base,
 				patchObj.java.conversion
 			);
 			// 后备
 			if (!javaEN.pcub) javaEN.pcub = {};
 			Object.assign(javaEN.pcub,
-				(patchObj.common) ? patchObj.common.fallback : {},
+				... (patchObj.common) ? [patchObj.common.fallback] : [],
 				patchObj.java.fallback
 			);
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.java.conversion) {
-				const preseted = patchObj.java.conversion[key];
-				convertTask.push(
-					conv_s2hk.convertPromise(preseted).then( converted => {
-						javaPatchConvHK[key] = converted;
-					} ),
-					conv_s2tw.convertPromise(preseted).then( converted => {
-						javaPatchConvTW[key] = converted;
-					} )
-				)
-			}
+					const preseted = patchObj.java.conversion[key];
+					convertTask.push(
+						conv_s2hk.convertPromise(preseted).then( converted => {
+							javaPatchConvHK[key] = converted;
+						} ),
+						conv_s2tw.convertPromise(preseted).then( converted => {
+							javaPatchConvTW[key] = converted;
+						} )
+					)
+				}
+			else javaPatchConvHK = javaPatchConvTW = patchObj.java.conversion;
 			// 合并
 			const javaPatchOut = Object.assign({},javaPatchCN);
 			dupKeyInOtherNs(javaCN, javaPatchOut); // 使用补丁覆盖
@@ -235,79 +235,83 @@ const process = async function (...packNameList) {
 		// Geyser 专用
 		if (patchObj.geyser) {
 			Object.assign(geyserCN,
-				(patchObj.common) ? patchObj.common.base : {},
-				(patchObj.common) ? patchObj.common.conversion : {},
-				(patchObj.cross) ? patchObj.cross.base : {},
-				(patchObj.cross) ? patchObj.cross.conversion : {},
+				... (patchObj.common) ? [patchObj.common.base, patchObj.common.conversion] : [],
+				... (patchObj.cross) ? [patchObj.cross.base, patchObj.cross.conversion] : [],
 				patchObj.geyser.base,
 				patchObj.geyser.conversion
 			);
 			// 后备
 			Object.assign(geyserEN,
-				(patchObj.common) ? patchObj.common.fallback : {},
-				(patchObj.cross) ? patchObj.cross.fallback : {},
+				... (patchObj.common) ? [patchObj.common.fallback] : [],
+				... (patchObj.cross) ? [patchObj.cross.fallback] : [],
 				patchObj.geyser.fallback
 			);
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.geyser.conversion) {
-				const preseted = patchObj.geyser.conversion[key];
-				convertTask.push(
-					conv_s2tw.convertPromise(preseted).then( converted => {
-						geyserPatchConvTW[key] = converted;
-					} )
-				)
-			}
+					const preseted = patchObj.geyser.conversion[key];
+					convertTask.push(
+						conv_s2tw.convertPromise(preseted).then( converted => {
+							geyserPatchConvTW[key] = converted;
+						} )
+					)
+				}
+			else geyserPatchConvTW = patchObj.geyser.conversion;
 		}
 
 		// 基岩客户端
 		if (patchObj.bedrock) {
 			Object.assign(bedrockCN,
-				(patchObj.common) ? patchObj.common.base : {},
-				(patchObj.common) ? patchObj.common.conversion : {},
-				(patchObj.cross) ? patchObj.cross.base : {},
-				(patchObj.cross) ? patchObj.cross.conversion : {},
+				... (patchObj.common) ? [patchObj.common.base, patchObj.common.conversion] : [],
+				... (patchObj.cross) ? [patchObj.cross.base, patchObj.cross.conversion] : [],
 				patchObj.bedrock.base,
 				patchObj.bedrock.conversion
 			);
 			// 后备
 			Object.assign(bedrockEN,
-				(patchObj.common) ? patchObj.common.fallback : {},
-				(patchObj.cross) ? patchObj.cross.fallback : {},
+				... (patchObj.common) ? [patchObj.common.fallback] : [],
+				... (patchObj.cross) ? [patchObj.cross.fallback] : [],
 				patchObj.bedrock.fallback
 			);
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.bedrock.conversion) {
-				const preseted = patchObj.bedrock.conversion[key];
-				convertTask.push(
-					conv_s2tw.convertPromise(preseted).then( converted => {
-						bedrockPatchConvTW[key] = converted;
-					} )
-				)
-			}
+					const preseted = patchObj.bedrock.conversion[key];
+					convertTask.push(
+						conv_s2tw.convertPromise(preseted).then( converted => {
+							bedrockPatchConvTW[key] = converted;
+						} )
+					)
+				}
+			else bedrockPatchConvTW = patchObj.bedrock.conversion
 		}
 		
 		// 通用繁体转换
 		// 互通通用
-		if (patchObj.cross && OpenCC) for (const key in patchObj.cross.conversion) {
-			const preseted = patchObj.cross.conversion[key];
-			convertTask.push(
-				conv_s2tw.convertPromise(preseted).then( converted => {
-					crossConvTW[key] = converted;
-				} )
-			)
-		};
+		if (patchObj.cross) {
+			if (OpenCC) for (const key in patchObj.cross.conversion) {
+					const preseted = patchObj.cross.conversion[key];
+					convertTask.push(
+						conv_s2tw.convertPromise(preseted).then( converted => {
+							crossConvTW[key] = converted;
+						} )
+					)
+				}
+			else crossConvTW = patchObj.cross.conversion;
+		}
 		// 全部通用
-		if (patchObj.common && OpenCC) for (const key in patchObj.common.conversion) {
-			const preseted = patchObj.common.conversion[key];
-			convertTask.push(
-				conv_s2hk.convertPromise(preseted).then( converted => {
-					commonConvHK[key] = converted;
-				} ),
-				conv_s2tw.convertPromise(preseted).then( converted => {
-					commonConvTW[key] = converted;
-				} )
-			)
-		};
+		if (patchObj.common) {
+			if (OpenCC) for (const key in patchObj.common.conversion) {
+					const preseted = patchObj.common.conversion[key];
+					convertTask.push(
+						conv_s2hk.convertPromise(preseted).then( converted => {
+							commonConvHK[key] = converted;
+						} ),
+						conv_s2tw.convertPromise(preseted).then( converted => {
+							commonConvTW[key] = converted;
+						} )
+					)
+				}
+			else commonConvHK = commonConvTW = patchObj.common.conversion;
+		}
 
 		asyncTask.push(
 			Promise.all(convertTask).then(function(){
@@ -315,12 +319,8 @@ const process = async function (...packNameList) {
 				if (patchObj.java) {
 					const javaPatchTW = Object.assign({},
 						javaPatchCN, // 继承简体的键顺序
-						(patchObj.common) ? patchObj.common.base : {},
-						commonConvTW,
-						(patchObj.common) ? patchObj.common.tw : {},
-						(patchObj.java) ? patchObj.java.base : {},
-						javaPatchConvTW,
-						(patchObj.java) ? patchObj.java.tw : {}
+						... (patchObj.common) ? [patchObj.common.base, commonConvTW, patchObj.common.tw] : [],
+						... (patchObj.java) ? [patchObj.java.base, javaPatchConvTW, patchObj.java.tw] : []
 					)
 					const javaPatchOut = Object.assign({},javaPatchTW);
 					dupKeyInOtherNs(javaTW, javaPatchOut); // 使用补丁覆盖
@@ -329,12 +329,8 @@ const process = async function (...packNameList) {
 
 					const javaPatchHK = Object.assign({},
 						javaPatchTW, // 继承了台繁
-						(patchObj.common) ? patchObj.common.base : {},
-						commonConvHK,
-						(patchObj.common) ? patchObj.common.hk : {},
-						(patchObj.java) ? patchObj.java.base : {},
-						javaPatchConvHK,
-						(patchObj.java) ? patchObj.java.hk : {}
+						... (patchObj.common) ? [patchObj.common.base, commonConvHK, patchObj.common.hk] : [],
+						... (patchObj.java) ? [patchObj.java.base, javaPatchConvHK, patchObj.java.hk] : []
 					)
 					dupKeyInOtherNs(javaHK, javaPatchHK); // 使用补丁覆盖
 					if (javaHK.pcub) Object.assign(javaHK.pcub, javaPatchHK);
@@ -344,29 +340,17 @@ const process = async function (...packNameList) {
 				Object.assign(geyserTW,
 					geyserCN,        // 继承简体的键顺序
 					geyserNonConvTW, // 资源包内容
-					(patchObj.common) ? patchObj.common.base : {},
-					commonConvTW,
-					(patchObj.common) ? patchObj.common.tw : {},
-					(patchObj.cross) ? patchObj.cross.base : {},
-					crossConvTW,
-					(patchObj.cross) ? patchObj.cross.tw : {},
-					(patchObj.geyser) ? patchObj.geyser.base : {},
-					geyserPatchConvTW,
-					(patchObj.geyser) ? patchObj.geyser.tw : {}
+					... (patchObj.common) ? [patchObj.common.base, commonConvTW, patchObj.common.tw] : [],
+					... (patchObj.cross) ? [patchObj.cross.base, crossConvTW, patchObj.cross.tw] : [],
+					... (patchObj.geyser) ? [patchObj.geyser.base, geyserPatchConvTW, patchObj.geyser.tw] : []
 				)
 				// 合并到基岩客户端
 				Object.assign(bedrockTW,
 					bedrockCN,        // 继承简体的键顺序
 					bedrockNonConvTW, // 部分资源包内容
-					(patchObj.common) ? patchObj.common.base : {},
-					commonConvTW,
-					(patchObj.common) ? patchObj.common.tw : {},
-					(patchObj.cross) ? patchObj.cross.base : {},
-					crossConvTW,
-					(patchObj.cross) ? patchObj.cross.tw : {},
-					(patchObj.bedrock) ? patchObj.bedrock.base : {},
-					bedrockPatchConvTW,
-					(patchObj.bedrock) ? patchObj.bedrock.tw : {}
+					... (patchObj.common) ? [patchObj.common.base, commonConvTW, patchObj.common.tw] : [],
+					... (patchObj.cross) ? [patchObj.cross.base, crossConvTW, patchObj.cross.tw] : [],
+					... (patchObj.bedrock) ? [patchObj.bedrock.base, bedrockPatchConvTW, patchObj.bedrock.tw] : []
 				)
 			})
 		)
