@@ -94,13 +94,14 @@ const process = async function (...packNameList) {
 	const bedrockNonConvTW = new Object();
 	const geyserNonConvTW = new Object();
 	// {命名空间: {键名: 键值}}
+	const javaEN = new Object();
 	const javaCN = new Object();
 	const javaTW = new Object();
 	const javaHK = new Object();
 	// 异步执行
 	const asyncTask = [];
-
-	const mainPackName = packNameList[0];
+	// 导出包的名称
+	const outputPackName = packNameList[packNameList.length - 1];
 	// 遍历资源包
 	for (const packIndex in packNameList) {
 		const packName = packNameList[packIndex];
@@ -111,7 +112,7 @@ const process = async function (...packNameList) {
 		// 读取资源包
 		let dirList = [];
 		try { dirList = fs.readdirSync(packRoot); } catch (e) {}
-		console.log(`资源包 “${packName}” 的命名空间读取顺序为：${dirList}`);
+		if (dirList[0]) console.log(`资源包 “${packName}” 的命名空间读取顺序：${dirList.join("、")}`);
 		for (const s in dirList) {
 			const namespace = dirList[s];
 			let langObj = false;
@@ -207,10 +208,11 @@ const process = async function (...packNameList) {
 				patchObj.java.conversion
 			);
 			// 后备
-			autoOut("./output/" + mainPackName + "/assets/pcub/lang/en_us.json", JSON.stringify(Object.assign({},
+			if (!javaEN.pcub) javaEN.pcub = {};
+			Object.assign(javaEN.pcub,
 				(patchObj.common) ? patchObj.common.fallback : {},
 				patchObj.java.fallback
-			)));
+			);
 			// 繁体转换
 			if (OpenCC) for (const key in patchObj.java.conversion) {
 				const preseted = patchObj.java.conversion[key];
@@ -369,35 +371,45 @@ const process = async function (...packNameList) {
 			})
 		)
 	}
+
+	// 导出异步转换后的繁体文件
 	Promise.all(asyncTask).then(function(){
-		// 输出 Java 客户端语言文件
-		const javaOut = Object.assign({}, javaCN)
-		// 简体
+		// Java 客户端
+		const javaOut = Object.assign({}, javaCN);
 		for (const namespace in javaOut) {
-			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_cn.json",
-				JSON.stringify(javaOut[namespace]));
-		}
-		// 台繁
-		for (const namespace in javaOut) {
-			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_tw.json",
+			// 台繁
+			autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_tw.json",
 				JSON.stringify(Object.assign(javaOut[namespace], // 继承简体的键顺序
 					javaTW[namespace])));
-		}
-		// 港繁
-		for (const namespace in javaOut) {
-			autoOut("./output/" + mainPackName + "/assets/" + namespace + "/lang/zh_hk.json",
+			// 港繁
+			autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_hk.json",
 				JSON.stringify(Object.assign(javaOut[namespace], // 此时已将台繁并入，即作为港繁的后备，也继承键顺序
 					javaHK[namespace])));
 		}
-		// 输出 Geyser 专用语言文件
-		autoOut("./output/" + mainPackName + "/overrides/en_us.json", JSON.stringify(geyserEN));
-		autoOut("./output/" + mainPackName + "/overrides/zh_cn.json", JSON.stringify(geyserCN));
-		autoOut("./output/" + mainPackName + "/overrides/zh_tw.json", JSON.stringify(geyserTW));
-		// 输出基岩客户端语言文件
-		autoOut("./output/" + mainPackName + "/texts/en_US.lang", langStr(bedrockEN));
-		autoOut("./output/" + mainPackName + "/texts/zh_CN.lang", langStr(bedrockCN));
-		autoOut("./output/" + mainPackName + "/texts/zh_TW.lang", langStr(bedrockTW));
+		// Geyser 专用
+		autoOut("./output/" + outputPackName + "/overrides/zh_tw.json", JSON.stringify(geyserTW));
+		// 基岩客户端
+		autoOut("./output/" + outputPackName + "/texts/zh_TW.lang", langStr(bedrockTW));
 	});
+
+	// 导出后备及简体文件
+	// Java 客户端
+	// 后备
+	for (const namespace in javaEN) {
+		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/en_us.json",
+			JSON.stringify(javaEN[namespace]));
+	}
+	// 简体
+	for (const namespace in javaCN) {
+		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_cn.json",
+			JSON.stringify(javaCN[namespace]));
+	}
+	// Geyser 专用
+	autoOut("./output/" + outputPackName + "/overrides/en_us.json", JSON.stringify(geyserEN)); // 后备
+	autoOut("./output/" + outputPackName + "/overrides/zh_cn.json", JSON.stringify(geyserCN)); // 简体
+	// 基岩客户端
+	autoOut("./output/" + outputPackName + "/texts/en_US.lang", langStr(bedrockEN)); // 后备
+	autoOut("./output/" + outputPackName + "/texts/zh_CN.lang", langStr(bedrockCN)); // 简体
 }
 
 module.exports = {process};
