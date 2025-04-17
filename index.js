@@ -91,15 +91,11 @@ const process = async function (...packNameList) {
 	const geyserEN = new Object();
 	const geyserCN = new Object();
 	const geyserTW = new Object();
-	const bedrockNonConvTW = new Object();
-	const geyserNonConvTW = new Object();
 	// {命名空间: {键名: 键值}}
 	const javaEN = new Object();
 	const javaCN = new Object();
 	const javaTW = new Object();
 	const javaHK = new Object();
-	// 异步执行
-	const asyncTask = [];
 	// 导出包的名称
 	const outputPackName = packNameList[packNameList.length - 1];
 	// 遍历资源包
@@ -107,8 +103,6 @@ const process = async function (...packNameList) {
 		const packName = packNameList[packIndex];
 		const packRoot = "./resources/" + packName + "/assets/";
 		const packObj = new Object();
-		// 异步执行
-		const convertTask = [];
 		// 读取资源包
 		let dirList = [];
 		try { dirList = fs.readdirSync(packRoot); } catch (e) {}
@@ -125,7 +119,11 @@ const process = async function (...packNameList) {
 		for (const namespace in packObj) {
 			// 初始化命名空间对象
 			const packNsObj = packObj[namespace];
-			if (!javaCN[namespace]) javaCN[namespace] = packNsObj;
+			if (!javaCN[namespace]) {
+				javaCN[namespace] = packNsObj;
+				javaHK[namespace] = {};
+				javaTW[namespace] = {};
+			}
 			else Object.assign(javaCN[namespace], packNsObj);
 			// 遍历键
 			for (const key in packNsObj) {
@@ -153,247 +151,182 @@ const process = async function (...packNameList) {
 				geyserCN[key] = preseted;
 
 				// 繁体转换
-				if (OpenCC) {
-					convertTask.push(
-						conv_s2tw.convertPromise(value).then( converted => {
-							for (const i in outputNsList) {
-								const namespace = outputNsList[i];
-								if (!javaTW[namespace]) javaTW[namespace] = {};
-								javaTW[namespace][key] = converted;
-							}
-							// 如果基岩的值和Java相同，直接使用Java的转换结果
-							if (preseted == value) {
-								if (namespace == "minecraft") bedrockNonConvTW[key] = converted;
-								geyserNonConvTW[key] = converted;
-							}
-						} ),
-						conv_s2hk.convertPromise(value).then( converted => {
-							for (const i in outputNsList) {
-								const namespace = outputNsList[i];
-								if (!javaHK[namespace]) javaHK[namespace] = {};
-								javaHK[namespace][key] = converted;
-							}
-						} )
-					)
-					// 如果基岩的值和Java不同，单独转换
-					if (preseted != value) convertTask.push(
-						conv_s2tw.convertPromise(preseted).then( converted => {
-							if (namespace == "minecraft") bedrockNonConvTW[key] = converted;
-							geyserNonConvTW[key] = converted;
-						} )
-					);
-				}
+				const convTW = (OpenCC) ? conv_s2tw.convertSync(value) : value;
+				const convHK = (OpenCC) ? conv_s2hk.convertSync(value) : value;
+				outputNsList.forEach((outputNs) => {
+					javaTW[outputNs][key] = convTW;
+					javaHK[outputNs][key] = convHK;
+				});
+				// 如果基岩的值和Java相同，直接使用Java的转换结果，否则单独转换
+				const convPres = (preseted == value || !OpenCC) ? convTW : conv_s2tw.convertSync(preseted);
+				if (namespace == "minecraft") bedrockTW[key] = convPres;
+				geyserTW[key] = convPres;
 			}
 		}
 
 		// 补丁文件
 		const commonConvHK = new Object();
 		const commonConvTW = new Object();
-		const javaPatchCN = new Object();
-		const javaPatchConvHK = new Object();
-		const javaPatchConvTW = new Object();
 		const crossConvTW = new Object();
-		const geyserPatchConvTW = new Object();
-		const bedrockPatchConvTW = new Object();
 		
 		let patchObj = {};
 		try { patchObj = JSON.parse(fs.readFileSync("./patch/" + packName + ".json")); } catch (e) {}
+		
+		// 通用繁体转换
+		// 互通通用
+		if (patchObj.cross) {
+			if (OpenCC) for (const key in patchObj.cross.conversion)
+				crossConvTW[key] = conv_s2tw.convertSync(patchObj.cross.conversion[key]);
+		}
+		// 全部通用
+		if (patchObj.common) {
+			if (OpenCC) for (const key in patchObj.common.conversion) {
+					const conversion = patchObj.common.conversion[key];
+					commonConvHK[key] = conv_s2hk.convertSync(conversion);
+					commonConvTW[key] = conv_s2tw.convertSync(conversion);
+				}
+		}
 
 		// Java 客户端
+		// 覆盖顺序：common.base < common.conversion < java.base < java.conversion < common.conversion(转为台繁) < common.tw < java.conversion(转为台繁) < java.tw < common.conversion(转为港繁) < common.hk < java.conversion(转为港繁) < java.hk
 		if (patchObj.java) {
-			Object.assign(javaPatchCN, 
+			// 简体
+			const patch = Object.assign({}, 
 				... (patchObj.common) ? [patchObj.common.base, patchObj.common.conversion] : [],
 				patchObj.java.base,
 				patchObj.java.conversion
 			);
+			const expCN = Object.assign({}, patch);
+			dupKeyInOtherNs(javaCN, expCN); // 使用补丁覆盖
+			if (javaCN.pcub) Object.assign(javaCN.pcub, expCN);
+			else javaCN.pcub = expCN;
+
+			// 繁体转换
+			const convHK = new Object();
+			const convTW = new Object();
+			if (OpenCC) for (const key in patchObj.java.conversion) {
+					const conversion = patchObj.java.conversion[key];
+					convHK[key] = conv_s2hk.convertSync(conversion);
+					convTW[key] = conv_s2tw.convertSync(conversion);
+				}
+
+			// 台繁
+			Object.assign(patch, // 继承简体
+				... (patchObj.common) ? [(OpenCC) ? commonConvTW : patchObj.common.conversion, patchObj.common.tw] : [],
+				(OpenCC) ? convTW : patchObj.java.conversion,
+				patchObj.java.tw
+			);
+			const expTW = Object.assign({}, patch);
+			dupKeyInOtherNs(javaTW, expTW); // 使用补丁覆盖
+			if (javaTW.pcub) Object.assign(javaTW.pcub, expTW);
+			else javaTW.pcub = expTW;
+
+			// 港繁
+			Object.assign(patch, // 继承台繁
+				... (patchObj.common) ? [(OpenCC) ? commonConvHK : patchObj.common.conversion, patchObj.common.hk] : [],
+				(OpenCC) ? convHK : patchObj.java.conversion,
+				patchObj.java.hk
+			);
+			const expHK = Object.assign({}, patch);
+			dupKeyInOtherNs(javaHK, expHK); // 使用补丁覆盖
+			if (javaHK.pcub) Object.assign(javaHK.pcub, expHK);
+			else javaHK.pcub = expHK;
+
 			// 后备
 			if (!javaEN.pcub) javaEN.pcub = {};
 			Object.assign(javaEN.pcub,
 				... (patchObj.common) ? [patchObj.common.fallback] : [],
 				patchObj.java.fallback
 			);
-			// 繁体转换
-			if (OpenCC) for (const key in patchObj.java.conversion) {
-					const preseted = patchObj.java.conversion[key];
-					convertTask.push(
-						conv_s2hk.convertPromise(preseted).then( converted => {
-							javaPatchConvHK[key] = converted;
-						} ),
-						conv_s2tw.convertPromise(preseted).then( converted => {
-							javaPatchConvTW[key] = converted;
-						} )
-					)
-				}
-			else javaPatchConvHK = javaPatchConvTW = patchObj.java.conversion;
-			// 合并
-			const javaPatchOut = Object.assign({},javaPatchCN);
-			dupKeyInOtherNs(javaCN, javaPatchOut); // 使用补丁覆盖
-			if (javaCN.pcub) Object.assign(javaCN.pcub, javaPatchOut);
-			else javaCN.pcub = javaPatchOut;
 		}
 
 		// Geyser 专用
+		// 覆盖顺序：common.base < common.conversion < cross.base < cross.conversion < geyser.base < geyser.conversion < common.conversion(转为台繁) < common.tw < cross.conversion(转为台繁) < cross.tw < geyser.conversion(转为台繁) < geyser.tw
 		if (patchObj.geyser) {
-			Object.assign(geyserCN,
+			// 简体
+			const patch = Object.assign({},
 				... (patchObj.common) ? [patchObj.common.base, patchObj.common.conversion] : [],
 				... (patchObj.cross) ? [patchObj.cross.base, patchObj.cross.conversion] : [],
 				patchObj.geyser.base,
 				patchObj.geyser.conversion
 			);
+			Object.assign(geyserCN, patch);
+			
+			// 繁体转换
+			const convTW = new Object();
+			if (OpenCC) for (const key in patchObj.geyser.conversion)
+				convTW[key] = conv_s2tw.convertSync(patchObj.geyser.conversion[key]);
+
+			// 台繁
+			Object.assign(patch,
+				... (patchObj.common) ? [(OpenCC) ? commonConvTW : patchObj.common.conversion, patchObj.common.tw] : [],
+				... (patchObj.cross) ? [(OpenCC) ? crossConvTW : patchObj.cross.conversion, patchObj.cross.tw] : [],
+				(OpenCC) ? convTW : patchObj.geyser.conversion,
+				patchObj.geyser.tw
+			);
+			Object.assign(geyserTW, patch);
+
 			// 后备
 			Object.assign(geyserEN,
 				... (patchObj.common) ? [patchObj.common.fallback] : [],
 				... (patchObj.cross) ? [patchObj.cross.fallback] : [],
 				patchObj.geyser.fallback
 			);
-			// 繁体转换
-			if (OpenCC) for (const key in patchObj.geyser.conversion) {
-					const preseted = patchObj.geyser.conversion[key];
-					convertTask.push(
-						conv_s2tw.convertPromise(preseted).then( converted => {
-							geyserPatchConvTW[key] = converted;
-						} )
-					)
-				}
-			else geyserPatchConvTW = patchObj.geyser.conversion;
 		}
 
 		// 基岩客户端
+		// 覆盖顺序：common.base < common.conversion < cross.base < cross.conversion < bedrock.base < bedrock.conversion < common.conversion(转为台繁) < common.tw < cross.conversion(转为台繁) < cross.tw < bedrock.conversion(转为台繁) < bedrock.tw
 		if (patchObj.bedrock) {
-			Object.assign(bedrockCN,
+			// 简体
+			const patch = Object.assign({},
 				... (patchObj.common) ? [patchObj.common.base, patchObj.common.conversion] : [],
 				... (patchObj.cross) ? [patchObj.cross.base, patchObj.cross.conversion] : [],
 				patchObj.bedrock.base,
 				patchObj.bedrock.conversion
 			);
+			Object.assign(bedrockCN, patch);
+
+			// 繁体转换
+			const convTW = new Object();
+			if (OpenCC) for (const key in patchObj.bedrock.conversion)
+				convTW[key] = conv_s2tw.convertSync(patchObj.bedrock.conversion[key]);
+
+			// 台繁
+			Object.assign(patch,
+				... (patchObj.common) ? [(OpenCC) ? commonConvTW : patchObj.common.conversion, patchObj.common.tw] : [],
+				... (patchObj.cross) ? [(OpenCC) ? crossConvTW : patchObj.cross.conversion, patchObj.cross.tw] : [],
+				(OpenCC) ? convTW : patchObj.bedrock.conversion,
+				patchObj.bedrock.tw
+			);
+			Object.assign(bedrockTW, patch);
+
 			// 后备
 			Object.assign(bedrockEN,
 				... (patchObj.common) ? [patchObj.common.fallback] : [],
 				... (patchObj.cross) ? [patchObj.cross.fallback] : [],
 				patchObj.bedrock.fallback
 			);
-			// 繁体转换
-			if (OpenCC) for (const key in patchObj.bedrock.conversion) {
-					const preseted = patchObj.bedrock.conversion[key];
-					convertTask.push(
-						conv_s2tw.convertPromise(preseted).then( converted => {
-							bedrockPatchConvTW[key] = converted;
-						} )
-					)
-				}
-			else bedrockPatchConvTW = patchObj.bedrock.conversion
 		}
-		
-		// 通用繁体转换
-		// 互通通用
-		if (patchObj.cross) {
-			if (OpenCC) for (const key in patchObj.cross.conversion) {
-					const preseted = patchObj.cross.conversion[key];
-					convertTask.push(
-						conv_s2tw.convertPromise(preseted).then( converted => {
-							crossConvTW[key] = converted;
-						} )
-					)
-				}
-			else crossConvTW = patchObj.cross.conversion;
-		}
-		// 全部通用
-		if (patchObj.common) {
-			if (OpenCC) for (const key in patchObj.common.conversion) {
-					const preseted = patchObj.common.conversion[key];
-					convertTask.push(
-						conv_s2hk.convertPromise(preseted).then( converted => {
-							commonConvHK[key] = converted;
-						} ),
-						conv_s2tw.convertPromise(preseted).then( converted => {
-							commonConvTW[key] = converted;
-						} )
-					)
-				}
-			else commonConvHK = commonConvTW = patchObj.common.conversion;
-		}
-
-		asyncTask.push(
-			Promise.all(convertTask).then(function(){
-				// 合并到 Java 客户端
-				if (patchObj.java) {
-					const javaPatchTW = Object.assign({},
-						javaPatchCN, // 继承简体的键顺序
-						... (patchObj.common) ? [patchObj.common.base, commonConvTW, patchObj.common.tw] : [],
-						... (patchObj.java) ? [patchObj.java.base, javaPatchConvTW, patchObj.java.tw] : []
-					)
-					const javaPatchOut = Object.assign({},javaPatchTW);
-					dupKeyInOtherNs(javaTW, javaPatchOut); // 使用补丁覆盖
-					if (javaTW.pcub) Object.assign(javaTW.pcub, javaPatchOut);
-					else javaTW.pcub = javaPatchOut;
-
-					const javaPatchHK = Object.assign({},
-						javaPatchTW, // 继承了台繁
-						... (patchObj.common) ? [patchObj.common.base, commonConvHK, patchObj.common.hk] : [],
-						... (patchObj.java) ? [patchObj.java.base, javaPatchConvHK, patchObj.java.hk] : []
-					)
-					dupKeyInOtherNs(javaHK, javaPatchHK); // 使用补丁覆盖
-					if (javaHK.pcub) Object.assign(javaHK.pcub, javaPatchHK);
-					else javaHK.pcub = javaPatchHK;
-				}
-				// 合并到 Geyser 专用
-				Object.assign(geyserTW,
-					geyserCN,        // 继承简体的键顺序
-					geyserNonConvTW, // 资源包内容
-					... (patchObj.common) ? [patchObj.common.base, commonConvTW, patchObj.common.tw] : [],
-					... (patchObj.cross) ? [patchObj.cross.base, crossConvTW, patchObj.cross.tw] : [],
-					... (patchObj.geyser) ? [patchObj.geyser.base, geyserPatchConvTW, patchObj.geyser.tw] : []
-				)
-				// 合并到基岩客户端
-				Object.assign(bedrockTW,
-					bedrockCN,        // 继承简体的键顺序
-					bedrockNonConvTW, // 部分资源包内容
-					... (patchObj.common) ? [patchObj.common.base, commonConvTW, patchObj.common.tw] : [],
-					... (patchObj.cross) ? [patchObj.cross.base, crossConvTW, patchObj.cross.tw] : [],
-					... (patchObj.bedrock) ? [patchObj.bedrock.base, bedrockPatchConvTW, patchObj.bedrock.tw] : []
-				)
-			})
-		)
 	}
 
-	// 导出异步转换后的繁体文件
-	Promise.all(asyncTask).then(function(){
-		// Java 客户端
-		const javaOut = Object.assign({}, javaCN);
-		for (const namespace in javaOut) {
-			// 台繁
-			autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_tw.json",
-				JSON.stringify(Object.assign(javaOut[namespace], // 继承简体的键顺序
-					javaTW[namespace])));
-			// 港繁
-			autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_hk.json",
-				JSON.stringify(Object.assign(javaOut[namespace], // 此时已将台繁并入，即作为港繁的后备，也继承键顺序
-					javaHK[namespace])));
-		}
-		// Geyser 专用
-		autoOut("./output/" + outputPackName + "/overrides/zh_tw.json", JSON.stringify(geyserTW));
-		// 基岩客户端
-		autoOut("./output/" + outputPackName + "/texts/zh_TW.lang", langStr(bedrockTW));
-	});
-
-	// 导出后备及简体文件
+	// 导出文件
 	// Java 客户端
-	// 后备
 	for (const namespace in javaEN) {
-		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/en_us.json",
-			JSON.stringify(javaEN[namespace]));
+		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/en_us.json", JSON.stringify(javaEN[namespace]));
 	}
-	// 简体
 	for (const namespace in javaCN) {
-		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_cn.json",
-			JSON.stringify(javaCN[namespace]));
+		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_cn.json", JSON.stringify(javaCN[namespace]));
+		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_tw.json", JSON.stringify(javaTW[namespace]));
+		autoOut("./output/" + outputPackName + "/assets/" + namespace + "/lang/zh_hk.json", JSON.stringify(javaHK[namespace]));
 	}
 	// Geyser 专用
-	autoOut("./output/" + outputPackName + "/overrides/en_us.json", JSON.stringify(geyserEN)); // 后备
-	autoOut("./output/" + outputPackName + "/overrides/zh_cn.json", JSON.stringify(geyserCN)); // 简体
+	autoOut("./output/" + outputPackName + "/overrides/en_us.json", JSON.stringify(geyserEN));
+	autoOut("./output/" + outputPackName + "/overrides/zh_cn.json", JSON.stringify(geyserCN));
+	autoOut("./output/" + outputPackName + "/overrides/zh_tw.json", JSON.stringify(geyserTW));
 	// 基岩客户端
-	autoOut("./output/" + outputPackName + "/texts/en_US.lang", langStr(bedrockEN)); // 后备
-	autoOut("./output/" + outputPackName + "/texts/zh_CN.lang", langStr(bedrockCN)); // 简体
+	autoOut("./output/" + outputPackName + "/texts/en_US.lang", langStr(bedrockEN));
+	autoOut("./output/" + outputPackName + "/texts/zh_CN.lang", langStr(bedrockCN));
+	autoOut("./output/" + outputPackName + "/texts/zh_TW.lang", langStr(bedrockTW));
 }
 
 module.exports = {process};
